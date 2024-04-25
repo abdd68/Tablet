@@ -372,14 +372,17 @@ def start_demo(demo_args: argparse.Namespace):
         if "error" in prediction:
             st.write(prediction)
         else:
-            no_instruct_prediction = compute_answer(updated_prompt_no_instructions, model)
             if not isinstance(prediction, str):
                 predicted_text = prediction[0]["generated_text"]
-                no_instruct_predicted_text = no_instruct_prediction[0]["generated_text"]
             else:
                 predicted_text = prediction
-                no_instruct_predicted_text = no_instruct_prediction
             st.write(f":green[With instructions], {model} predicts this data point as class: :orange[{predicted_text}]")
+            no_instruct_prediction = compute_answer(updated_prompt_no_instructions, model)
+            if not isinstance(prediction, str):
+                no_instruct_predicted_text = no_instruct_prediction[0]["generated_text"]
+            else:
+                no_instruct_predicted_text = no_instruct_prediction
+            
             st.write(f":red[Without instructions], {model} predicts this data point as class: :orange[{no_instruct_predicted_text}]")
     else:
         st.write('Click predict to see the answer.')
