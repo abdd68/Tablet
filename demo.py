@@ -5,6 +5,8 @@ import pandas as pd
 
 import streamlit as st
 import requests
+import os
+from transformers import AutoTokenizer, AutoModel
 
 import openai
 
@@ -121,7 +123,7 @@ def encode(features: list[str],
     if label is not None:
         if model == "Tk-Instruct 11b":
             data_point += f"Answer: {label}"
-        elif model == "Flan-T5 11b" or model == "Flan-UL2 20b":
+        elif model == "Flan-T5 11b" or model == "ChatGLM3":
             data_point += f"Answer: {label}"
         else:
             data_point += f"The answer is {label}"
@@ -143,7 +145,7 @@ def create_prompt(features: list[str],
         example = f"\nNow complete the following example -\n{data_point}"
         k_shot = "\n".join([f"\nPositive Example {i + 1} -\n{ex}" for i, ex in enumerate(k_shot_encoded)])
         prompt = f"Definition: {instruction}\n{k_shot}\n{example}Answer:"
-    elif model == "Flan-T5 11b" or model == "Flan-UL2 20b" or model == "ChatGPT":
+    elif model == "Flan-T5 11b" or model == "ChatGLM3" or model == "ChatGPT":
         example = f"\nNow complete the following example -\n{data_point}"
         k_shot = "\n".join([f"\nExample -\n{ex}" for i, ex in enumerate(k_shot_encoded)])
         prompt = f"{instruction}\n{k_shot}\n{example}Answer:"
@@ -157,18 +159,19 @@ def create_prompt(features: list[str],
 
 def flan_query(payload):
     payload = {"inputs": payload}
-    API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-xxl"
+    API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-base"
     headers = {"Authorization": args.key}
     response = requests.post(API_URL, headers=headers, json=payload)
     return response.json()
 
 
-def ul2_query(payload):
-    payload = {"inputs": payload, "parameters": {"temperature": 1.0, }}
-    API_URL = "https://api-inference.huggingface.co/models/google/flan-ul2"
-    headers = {"Authorization": args.key}
-    response = requests.post(API_URL, headers=headers, json=payload)
-    return response.json()
+def ChatGLM3_query(payload):
+    MODEL_PATH = os.environ.get('MODEL_PATH', 'THUDM/chatglm3-6b')
+    TOKENIZER_PATH = os.environ.get("TOKENIZER_PATH", MODEL_PATH)
+    tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_PATH, trust_remote_code=True)
+    model = AutoModel.from_pretrained(MODEL_PATH, trust_remote_code=True, device_map="auto").eval()
+    response, _ = model.chat(tokenizer, payload)
+    return response
 
 
 def tk_query(payload):
@@ -197,8 +200,8 @@ def chatgpt_query(payload):
 def compute_answer(prompt: str, model: str):
     if model == "Flan-T5 11b":
         output = flan_query(prompt)
-    elif model == "Flan-UL2 20b":
-        output = ul2_query(prompt)
+    elif model == "ChatGLM3":
+        output = ChatGLM3_query(prompt)
     elif model == "Tk-Instruct 11b":
         output = tk_query(prompt)
     elif model == "ChatGPT":
@@ -245,7 +248,7 @@ def start_demo(demo_args: argparse.Namespace):
             "You can set this value in the One-hot text box below."
         )
         help_text_model = "This will determine the prediction model."
-        model = st.radio("Model", ['Flan-T5 11b', 'Flan-UL2 20b', 'ChatGPT'], 1, help=help_text_model)
+        model = st.radio("Model", ['Flan-T5 11b', 'ChatGLM3', 'ChatGPT'], 1, help=help_text_model)
 
         if model == "ChatGPT":
             key = st.text_area(label="OpenAI Key for ChatGPT. We will not store this.")
@@ -369,10 +372,14 @@ def start_demo(demo_args: argparse.Namespace):
         if "error" in prediction:
             st.write(prediction)
         else:
-            predicted_text = prediction[0]["generated_text"]
-            st.write(f":green[With instructions], {model} predicts this data point as class: :orange[{predicted_text}]")
             no_instruct_prediction = compute_answer(updated_prompt_no_instructions, model)
-            no_instruct_predicted_text = no_instruct_prediction[0]["generated_text"]
+            if not isinstance(prediction, str):
+                predicted_text = prediction[0]["generated_text"]
+                no_instruct_predicted_text = no_instruct_prediction[0]["generated_text"]
+            else:
+                predicted_text = prediction
+                no_instruct_predicted_text = no_instruct_prediction
+            st.write(f":green[With instructions], {model} predicts this data point as class: :orange[{predicted_text}]")
             st.write(f":red[Without instructions], {model} predicts this data point as class: :orange[{no_instruct_predicted_text}]")
     else:
         st.write('Click predict to see the answer.')
@@ -384,8 +391,7 @@ if __name__ == "__main__":
                         help='random seed',
                         default=90210)
     parser.add_argument('-k', '--key',
-                        help='hf key',
-                        required=True)
+                        help='hf key', default = "Bearer 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")
     args = parser.parse_args()
     setup()
     start_demo(args)
